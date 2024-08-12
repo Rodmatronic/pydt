@@ -1,139 +1,115 @@
-import tkinter as tk
-from tkinter import Menu
-from tkinter import messagebox
-from tkinter import scrolledtext
+from tkinter import *
 import subprocess
-import os
-import getpass
 import socket
-import pyglet
-import time
+import os
 
-pyglet.font.add_file("./Terminus.ttf")
+# Create a GUI window
+root = Tk()
+
+root.title("Pydt")
+root.minsize(484, 364)
+root.geometry("484x364")
+root.configure(background='#170e05') 
+user_text = []
+cursor_x, cursor_y = 0, 0
+line_height = 20  # Height between lines
+current_command = ""  # Buffer to store the current command
+
+darkest_dark = "#261800"
+middle_dark = "#56340d"
+lightest_dark = "#8c5700"
+
+# Get the current hostname
 hostname = socket.gethostname()
-prompt = f"{hostname}# "
+prompt = f"{hostname}$ "  # Set the prompt with the hostname
 
-def donothing():
-    pass
+def stroke_text(x, y, text, textcolor, strokecolor):
+    # second layer
+    canvas.create_text(x + 8 - 3, y + 13, text=text, font=('Terminus', 12, 'bold'), fill=strokecolor)
+    canvas.create_text(x + 8 +2, y + 13, text=text, font=('Terminus', 12, 'bold'), fill=strokecolor)
+    canvas.create_text(x + 8, y + 15, text=text, font=('Terminus', 12, 'bold'), fill=strokecolor)
+    canvas.create_text(x + 8, y + 11, text=text, font=('Terminus', 12, 'bold'), fill=strokecolor)
 
-class TerminalEmulator(tk.Tk):
-    def __init__(self):
-        super().__init__()
-        self.title("Pydt")
-        self.geometry("720x401")
-        self.option_add('*tearOff', False)
-        self.configure(background='black') # Make closing/refreshing look prettier
-        
-        self.menubar = Menu(self)
-        self.filemenu = Menu(self.menubar, tearoff=0)
-        self.filemenu.add_command(label="Preferences", command=self.preferences)
-        self.filemenu.add_separator() 
-        self.filemenu.add_command(label="Exit", command=self.quit_with_style)
-        self.menubar.add_cascade(label="File", menu=self.filemenu)
+    # first layer
+    canvas.create_text(x + 8 - 1, y + 13, text=text, font=('Terminus', 12, 'bold'), fill="#8c5700")
+    canvas.create_text(x + 8 , y + 13, text=text, font=('Terminus', 12, 'bold'), fill="#8c5700")
+    canvas.create_text(x + 8, y + 14, text=text, font=('Terminus', 12, 'bold'), fill="#8c5700")
 
-        self.helpmenu = Menu(self.menubar, tearoff=0)
-        self.helpmenu.add_command(label="Help Index", command=donothing)
-        self.helpmenu.add_command(label="About...", command=self.info_msg)
-        self.menubar.add_cascade(label="Help", menu=self.helpmenu)
+    # make regular text
+    canvas.create_text(x + 8, y + 13, text=text, font=('Terminus', 12), fill=textcolor)
 
-        self.config(menu=self.menubar)
+def print_term(x, y, text, textcolor, strokecolor):
+    for i, char in enumerate(text):
+        char_x = x + i * 11  # Calculate the x position for each character
+        stroke_text(char_x, y, char, textcolor, strokecolor)
 
-        self.output_area = scrolledtext.ScrolledText(self, wrap=tk.WORD, font=("Terminus", 12), bg="black", fg="#e8973e", insertbackground="#e8973e", highlightthickness = 0, borderwidth=0)
-        self.output_area.pack(fill=tk.BOTH, expand=True)
-        self.output_area.bind("<Return>", self.execute_command)
-        self.output_area.bind("<BackSpace>", self.disable_backspace)
-        
-        self.username = getpass.getuser()
-        self.hostname = socket.gethostname()
-        self.cwd = os.getcwd()
-        
-        with open('/etc/motd', 'r') as f:
-            self.output_area.insert(tk.END, f.read())
+def render_text():
+    canvas.delete("all")  # Clear the canvas to redraw the text
+    global cursor_x, cursor_y
 
-        #self.prompt = f"|-[({self.username}@{self.hostname})-({self.cwd})]\n|-$ "
-        self.prompt = prompt
-        self.output_area.insert(tk.END, self.prompt)
-        self.output_area.mark_set("prompt_end", "insert")
-        self.output_area.mark_gravity("prompt_end", tk.LEFT)
-        self.output_area.focus()
+    cursor_x, cursor_y = 0, 0  # Reset cursor position
 
-    def quit_with_style(self):
-        response = messagebox.askyesno("Confirmation", "Are you sure you want to exit the terminal?")
-        if response:  # User clicked "Yes"
-          print("User clicked Yes, exiting")
-          exit()
-        else:  # User clicked "No"
-          print("User clicked No.")
+    for line in user_text:
+        print_term(0, cursor_y, line, '#FFB000', '#56340d')
+        cursor_y += line_height  # Move cursor to next line
 
-    def info_msg(self): 
-        messagebox.showinfo("About", "Python Dumb Terminal (pydt), a really, really dumb terminal. Written by Rodmatronics") 
+    draw_cursor()
+
+def draw_cursor():
+    # Draw the block text cursor at the end of the last line
+    if user_text:
+        cursor_x = len(user_text[-1]) * 11  # Calculate x position based on text length
+        canvas.create_rectangle(cursor_x + 2, cursor_y - line_height + 2, cursor_x + 16, cursor_y + 2, outline=darkest_dark, fill=middle_dark)
+        canvas.create_rectangle(cursor_x + 4, cursor_y - line_height + 4, cursor_x + 14, cursor_y + 0, outline=lightest_dark, fill='#FFB000')
+
+def execute_command(command):
+    global current_command
     
-    def preferences(self): 
-        x = 1
+    if command.startswith("cd "):
+        try:
+            # Change the current working directory
+            os.chdir(command[3:].strip())
+        except FileNotFoundError as e:
+            user_text.append(f"cd: No such file or directory: {command[3:].strip()}")
+        except NotADirectoryError as e:
+            user_text.append(f"cd: Not a directory: {command[3:].strip()}")
+        except PermissionError as e:
+            user_text.append(f"cd: Permission denied: {command[3:].strip()}")
+    elif command == "clear":
+        user_text.clear()  # Clear the terminal display
+    else:
+        try:
+            # Execute other commands and capture the output
+            output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT, text=True)
+        except subprocess.CalledProcessError as e:
+            output = e.output  # In case of error, capture the output
+        user_text.append(output)  # Append the output to the terminal display
 
-        #pref_window = tk.Toplevel(self)
-        #pref_window.title("Preferences")
+def on_key_press(event):
+    global user_text, current_command
+    if event.keysym == "BackSpace":
+        if user_text and len(user_text[-1]) > len(prompt):  # Allow backspace only if not at the prompt
+            user_text[-1] = user_text[-1][:-1]  # Remove the last character
+            current_command = current_command[:-1]  # Remove last character from command buffer
+    elif event.keysym == "Return":
+        if current_command.strip():  # Only execute if command is not empty
+            execute_command(current_command)  # Execute the current command
+        current_command = ""  # Clear the command buffer
+        user_text.append(prompt)  # Add a new prompt line
+    else:
+        user_text[-1] += event.char  # Add the typed character to the last line
+        current_command += event.char  # Add the character to the command buffer
 
-        #tk.Label(pref_window, text="Foreground Color:").grid(row=0, column=0, padx=5, pady=5)
-        #self.fg_color_entry = tk.Entry(pref_window)
-        #self.fg_color_entry.insert(0, self.fg_color)
-        #self.fg_color_entry.grid(row=0, column=1, padx=5, pady=5)
+    render_text()
 
-        #tk.Label(pref_window, text="Background Color:").grid(row=1, column=0, padx=5, pady=5)
-        #self.bg_color_entry = tk.Entry(pref_window)
-        #self.bg_color_entry.insert(0, self.bg_color)
-        #self.bg_color_entry.grid(row=1, column=1, padx=5, pady=5)
+canvas = Canvas(root, bg='#170e05', width=500, height=500, highlightthickness=0)
+canvas.pack(fill=BOTH)
 
-        #tk.Label(pref_window, text="Show /etc/motd:").grid(row=2, column=0, padx=5, pady=5)
-        #self.motd_var = tk.BooleanVar(value=self.show_motd)
-        #tk.Checkbutton(pref_window, variable=self.motd_var).grid(row=2, column=1, padx=5, pady=5)
+# Start with the prompt
+user_text.append(prompt)
+render_text()
 
-        #tk.Button(pref_window, text="Save", command=self.save_preferences).grid(row=3, column=0, columnspan=2, pady=10)
+# Bind key press events to the function
+root.bind("<KeyPress>", on_key_press)
 
-        #self.output_area.configure(bg="White")
-
-    def execute_command(self, event):
-        command = self.get_current_command().strip()
-        self.output_area.insert(tk.END, "\n")
-        
-        if command:
-            if command.startswith("cd "):
-                try:
-                    os.chdir(command.split(" ", 1)[1])
-                except FileNotFoundError as e:
-                    self.output_area.insert(tk.END, f"cd: {str(e)}\n")
-                self.cwd = os.getcwd()
-            elif command.startswith("exit"):
-                exit()
-            elif command.startswith("clear"):
-                self.output_area.delete(1.0, tk.END)
-                self.output_area.insert(tk.END, "")
-            else:
-                try:
-                    output = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT, universal_newlines=True)
-                    self.output_area.insert(tk.END, output)
-                except subprocess.CalledProcessError as e:
-                    self.output_area.insert(tk.END, e.output)
-        self.update_prompt()
-        return "break"
-
-    def disable_backspace(self, event):
-        if self.output_area.compare("insert", ">", "prompt_end"):
-            return None
-        else:
-            return "break"
-
-    def update_prompt(self):
-        self.prompt = prompt
-        self.output_area.insert(tk.END, self.prompt)
-        self.output_area.mark_set("prompt_end", "insert")
-        self.output_area.see(tk.END)
-
-    def get_current_command(self):
-        last_line = self.output_area.get("prompt_end", "insert lineend")
-        return last_line
-
-if __name__ == "__main__":
-    app = TerminalEmulator()
-    app.mainloop()
-
+mainloop()
